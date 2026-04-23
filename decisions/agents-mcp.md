@@ -36,9 +36,8 @@ Also yes, this is the classic "agentic AI flow like every app nowadays" chapter,
 
 1. Launch Bridge plus Issa Compass MCP with a minimal, mostly read-only tool set and optional low-risk notification helpers.
 2. Enable built-in agents in the UI using only those low-risk tools.
-3. Add draft-only assistant flows with explicit human confirmation.
-4. Validate adoption, quality, and safety; then introduce write tools with idempotency and full audit.
-5. Add custom agents and optional third-party MCP servers behind tenant-specific allowlists.
+3. Validate adoption, quality, and safety; then introduce write tools with idempotency and full audit.
+4. Add custom agents and optional third-party MCP servers behind tenant-specific allowlists.
 
 ## Schema Note
 
