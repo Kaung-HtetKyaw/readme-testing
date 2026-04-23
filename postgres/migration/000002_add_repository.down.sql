@@ -1,0 +1,7 @@
+BEGIN;
+
+
+DROP TABLE IF EXISTS repository;
+
+
+END;
