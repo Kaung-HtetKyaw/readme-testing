@@ -256,19 +256,19 @@ Flow summary: staff interacts with agents from the UI, the bridge enforces tenan
 
 ```mermaid
 flowchart TB
-  UI[UI application]
-  BRIDGE[MCP client service (bridge)]
-  GW[API Gateway optional]
-  API[Main API]
+  UI["UI application"]
+  BRIDGE["MCP client service - bridge"]
+  GW["API Gateway optional"]
+  API["Main API"]
   PG[(PostgreSQL)]
 
-  MCPIC[Issa Compass MCP server]
-  MCP3P[Third-party MCP servers]
+  MCPIC["Issa Compass MCP server"]
+  MCP3P["Third-party MCP servers"]
 
   UI -->|staff actions| GW
   UI -->|agent chat + tool calls| BRIDGE
   GW --> API
-  BRIDGE -->|domain reads/writes with tenant+RBAC| GW
+  BRIDGE -->|domain reads and writes with tenant RBAC| GW
   BRIDGE -->|or direct path| API
   BRIDGE -->|MCP protocol| MCPIC
   BRIDGE -->|MCP protocol optional| MCP3P
@@ -279,17 +279,10 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  UI2[Staff UI] --> BI[Built-in agents]
-  UI2 --> CA[Custom agents]
-  BI --> BR[MCP bridge]
+  UI2["Staff UI"] --> BI["Built-in agents"]
+  UI2 --> CA["Custom agents"]
+  BI --> BR["MCP bridge"]
   CA --> BR
-  BR --> READ[Read tools first]
-  READ --> WRITE[Write tools later after validation]
+  BR --> READ["Read tools first"]
+  READ --> WRITE["Write tools later after validation"]
 ```
-
----
-
-## How to use this in submission
-
-- Link this file from the main write-up.
-- Keep this as the primary visual reference; avoid duplicating many extra diagrams unless explicitly requested.
