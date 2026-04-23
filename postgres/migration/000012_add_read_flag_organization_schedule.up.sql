@@ -1,7 +1,0 @@
-BEGIN;
-
-
-ALTER TABLE organization_schedule ADD COLUMN processing BOOLEAN NOT NULL DEFAULT FALSE;
-
-
-END;

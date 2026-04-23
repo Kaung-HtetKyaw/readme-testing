@@ -21,7 +21,7 @@
 
 - More tables increase schema complexity.
 - `payment_refunds` and `payment_transactions` look similar but serve different concerns (workflow vs ledger).
-- V1 idempotency does not include a full generic idempotency-key subsystem.
+- Idempotency is based on active payment-attempt status in V1, instead of a full idempotency-key subsystem.
 
 ## Future Plan (V2)
 
