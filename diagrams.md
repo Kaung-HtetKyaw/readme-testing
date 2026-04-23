@@ -1,35 +1,33 @@
 # Diagrams (for reviewers)
 
-Short visuals for the unified Postgres design. GitHub (and many editors) render Mermaid in preview.
+Module-by-module visuals for the unified Postgres design.
 
 ---
 
-## 1. High-level: who talks to what
-
-Shows the main runtime boundaries: clients and staff use your API; Chatwoot and the payment provider push webhooks; async workers read/write Postgres.
+## 1. System Overview
 
 ```mermaid
 flowchart TB
-  subgraph clients["Clients"]
+  subgraph clients[Clients]
     MOBILE[Mobile app]
     WEB[Web app]
   end
 
-  subgraph staff["Internal"]
+  subgraph staff[Internal Staff]
     LEGAL[Legal dashboard]
     COMMS[Comms / Chatwoot UI]
   end
 
-  subgraph platform["Your backend"]
-    API[HTTP API]
+  subgraph backend[Platform Backend]
+    API[Main API]
     WH[Webhook handlers]
     JOBS[Workers / jobs]
   end
 
-  subgraph external["External systems"]
+  subgraph external[External Systems]
     CW[Chatwoot]
     PAY[Payment provider]
-    AI[AI doc review pipeline]
+    AIPIPE[AI review pipeline]
   end
 
   PG[(PostgreSQL)]
@@ -44,26 +42,24 @@ flowchart TB
   API --> PG
   WH --> PG
   JOBS --> PG
-  API --> AI
-  JOBS --> AI
+  API --> AIPIPE
+  JOBS --> AIPIPE
 ```
 
 ---
 
-## 2. Tenancy + identity + RBAC
-
-`tenants` is the isolation root. Every `users` row belongs to one tenant. Role **assignments** are tenant-scoped: `user_roles` must match that user’s `(id, tenant_id)` (composite FK in `main/user_account.sql`). `roles` / `permissions` stay a global catalog in V1.
+## 2. User Account + RBAC Module
 
 ```mermaid
 erDiagram
-  tenants ||--o{ users : "has"
-  tenants ||--o{ user_roles : "scopes assignment"
-  users ||--o{ user_roles : "has roles"
-  users ||--o{ password_auth : "optional"
-  users ||--o{ oauth_auth : "optional"
-  roles ||--o{ user_roles : "assigned"
-  roles ||--o{ role_permissions : "grants"
-  permissions ||--o{ role_permissions : ""
+  tenants ||--o{ users : has
+  tenants ||--o{ user_roles : scopes
+  users ||--o{ password_auth : optional
+  users ||--o{ oauth_auth : optional
+  users ||--o{ user_roles : assigned
+  roles ||--o{ user_roles : grants
+  roles ||--o{ role_permissions : maps
+  permissions ||--o{ role_permissions : maps
 
   tenants {
     uuid id PK
@@ -84,182 +80,191 @@ erDiagram
     uuid tenant_id FK
     uuid user_id FK
     uuid role_id FK
-    timestamptz revoked_at
-  }
-
-  roles {
-    uuid id PK
-    text code
-    text name
-  }
-
-  permissions {
-    uuid id PK
-    text code
-    text resource
-    text action
-  }
-
-  role_permissions {
-    uuid role_id FK
-    uuid permission_id FK
   }
 ```
 
 ---
 
-## 3. Payments: tables and money flow
-
-**Intent** lives on `payment_orders`. **One active charge path** goes through `payment_attempts` (idempotency: do not open a second “in flight” attempt for the same order). **Provider noise** lands in `payment_provider_events`. **Immutable ledger** for money movement is `payment_transactions`. **Refund workflow** is `payment_refunds` (status + provider ids), while ledger rows record the financial outcome.
-
-```mermaid
-flowchart LR
-  PO[payment_orders]
-  PA[payment_attempts]
-  PPE[payment_provider_events]
-  PT[payment_transactions]
-  PR[payment_refunds]
-
-  PO -->|1..n attempts over time| PA
-  PA -->|ingest / dedupe| PPE
-  PPE -->|derive facts| PT
-  PO --> PR
-  PA --> PR
-  PR -->|ledger entries| PT
-```
-
-**Typical sequence** (happy path, simplified):
-
-```mermaid
-sequenceDiagram
-  participant App as API
-  participant PG as PostgreSQL
-  participant Prov as Payment provider
-
-  App->>PG: insert payment_order
-  App->>PG: insert payment_attempt (open)
-  App->>Prov: create payment intent
-  Prov-->>App: provider_payment_intent_id
-  App->>PG: update payment_attempt ids / status
-  Prov->>App: webhook event
-  App->>PG: insert payment_provider_event (idempotent)
-  App->>PG: append payment_transactions
-  App->>PG: update payment_order status / paid_at
-```
-
----
-
-## 4. Conversations: mirror + link to internal work
-
-Chatwoot (or another provider) stays the **message UI source of truth**. Postgres stores a **provider-agnostic snapshot** (`conversations`) plus **CRM profile** tables and **links** to `service_applications` when the same person starts product work. Staff in the provider map to internal users via `staff_provider_agents`.
+## 3. Service + Documents Module
 
 ```mermaid
 flowchart TB
-  CW[Chatwoot conversation]
+  S[services] --> SV[service_versions]
+  D[documents] --> SD[service_documents]
+  SV --> SD
 
-  subgraph pg["Postgres"]
+  U[users] --> SA[service_applications]
+  SV --> SA
+  C[submisssion_countries] --> SA
+
+  SA --> DTV[dtv_service_applications]
+  SA --> DS[document_submissions]
+  DS --> DF[document_files]
+  SA --> ST[application_steps]
+```
+
+---
+
+## 4. AI Document Review Module
+
+```mermaid
+flowchart LR
+  SA[service_applications] --> DS[document_submissions]
+  DS --> DF[document_files]
+
+  SA --> AIR[ai_doc_reviews]
+  DS --> AIR
+  AIR --> AIRF[ai_doc_review_run_files]
+  DF --> AIRF
+```
+
+---
+
+## 5. Conversation Module
+
+```mermaid
+flowchart TB
+  CW[Chatwoot / provider conversation]
+
+  subgraph pg[Postgres]
     CONV[conversations]
     SPA[staff_provider_agents]
     CSA[conversation_service_applications]
     CRM[conversation_crm_profiles]
     CRMH[conversation_crm_profile_history]
-    APP[service_applications]
+    SA[service_applications]
     U[users]
   end
 
-  CW -->|webhooks update snapshot| CONV
-  CONV -->|optional link| U
+  CW -->|webhooks| CONV
+  CONV --> U
+  U --> SPA
+  SPA --> CONV
+
   CONV --> CSA
-  APP --> CSA
+  SA --> CSA
+
   CONV --> CRM
   CRM --> CRMH
-  U --> SPA
-  SPA -->|maps provider agent id| CONV
 ```
 
 ---
 
-## 5. Core “service work” chain (documents + AI review)
-
-How an application ties to submissions, files, and append-only AI history (names from `main/service.sql` / `main/ai_doc_review.sql`).
-
-```mermaid
-flowchart TB
-  SV[service_versions]
-  SA[service_applications]
-  DS[document_submissions]
-  DF[document_files]
-  AIR[ai_doc_reviews]
-  AIF[ai_doc_review_run_files]
-
-  SV --> SA
-  SA --> DS
-  DS --> DF
-  DS --> AIR
-  AIR --> AIF
-  DF --> AIF
-```
-
----
-
-## 6. Future: staff agents (bridge + Main API / gateway + MCP)
-
-**Goal:** staff chat with **agents** (built-in like Assistant / Legal Review, or **custom** agents admins define) to get answers fast and run **allowed actions** per agent. Nothing bypasses tenancy, RBAC, or audit.
-
-**Flow (conceptual):** UI → **MCP client service (bridge)** → **Main API** and/or **API Gateway** (scalable, normal platform path) → **Postgres**. Same bridge → **MCP protocol** → **Issa Compass MCP server** (first-party tools) and optionally **other third-party MCP servers** (separate allowlists per agent / tenant).
-
-```mermaid
-flowchart TB
-  subgraph staff["Staff"]
-    UI[UI application]
-  end
-
-  subgraph bridge_layer["MCP client service - bridge"]
-    BRIDGE[Bridge orchestration]
-  end
-
-  subgraph api_layer["Domain access - scalable path"]
-    GW[API Gateway optional]
-    API[Main API]
-  end
-
-  subgraph mcp_layer["MCP servers"]
-    MCP_IC[Issa Compass MCP server]
-    MCP_3P[Third-party MCP servers]
-  end
-
-  PG[(PostgreSQL)]
-
-  UI -->|staff product actions| GW
-  UI -->|agent chat and tool runs| BRIDGE
-  GW --> API
-  BRIDGE -->|same RBAC and tenant rules| GW
-  BRIDGE -->|or direct if small deploy| API
-  BRIDGE -->|MCP| MCP_IC
-  BRIDGE -->|MCP optional| MCP_3P
-  API --> PG
-```
-
-**Agent types (who configures what):**
+## 6. Audit Log Module
 
 ```mermaid
 flowchart LR
-  UI2[Staff UI]
-  BI[Built-in agents - Assistant Legal Review etc]
-  CA[Custom agents - admin-defined]
-  BR2[MCP bridge]
+  AUTH[User Account]
+  SERVICE[Service]
+  AI[AI Review]
+  CONV[Conversation]
+  NOTI[Notification]
+  PAY[Payment]
 
-  UI2 --> BI
-  UI2 --> CA
-  BI --> BR2
-  CA --> BR2
+  AUTH --> AUDIT[audit_logs]
+  SERVICE --> AUDIT
+  AI --> AUDIT
+  CONV --> AUDIT
+  NOTI --> AUDIT
+  PAY --> AUDIT
 ```
-
-**V1 schema:** no extra tables required for this roadmap; first cut can lean on `audit_logs` and add `agent_*` tables when product scope is fixed. Detail: `decisions/agents-mcp.md`.
 
 ---
 
-## How to use this in the submission
+## 7. Notification Module
 
-- Point reviewers here from the main write-up (one line in email or README).
-- You do not need more than these; extra ER diagrams for every table usually add noise unless the brief asks for full ERD.
+```mermaid
+flowchart LR
+  N[notifications] --> NT[notification_targets]
+  N --> ND[notification_deliveries]
+  U[users] --> NP[notification_preferences]
+  U --> N
+
+  EV[Domain events]
+  EV --> N
+  ND --> CH[Email / Push / SMS providers]
+```
+
+---
+
+## 8. Payment Module
+
+```mermaid
+flowchart LR
+  PO[payment_orders]
+  PA[payment_attempts]
+  PR[payment_refunds]
+  PPE[payment_provider_events]
+  PT[payment_transactions]
+
+  PO --> PA
+  PO --> PR
+  PA --> PR
+
+  PA --> PPE
+  PPE --> PT
+  PR --> PT
+```
+
+**Operational sequence (happy path):**
+
+```mermaid
+sequenceDiagram
+  participant API as Main API
+  participant PG as PostgreSQL
+  participant PSP as Payment provider
+
+  API->>PG: create payment_order
+  API->>PG: create payment_attempt (open)
+  API->>PSP: create payment intent
+  PSP-->>API: payment_intent_id
+  API->>PG: update attempt refs/status
+  PSP->>API: webhook event
+  API->>PG: insert payment_provider_event (idempotent)
+  API->>PG: append payment_transactions
+  API->>PG: update payment_order status
+```
+
+---
+
+## 9. Agents + MCP Future Module
+
+```mermaid
+flowchart TB
+  UI[UI application]
+  BRIDGE[MCP client service (bridge)]
+  GW[API Gateway optional]
+  API[Main API]
+  PG[(PostgreSQL)]
+
+  MCPIC[Issa Compass MCP server]
+  MCP3P[Third-party MCP servers]
+
+  UI -->|staff actions| GW
+  UI -->|agent chat + tool calls| BRIDGE
+  GW --> API
+  BRIDGE -->|domain reads/writes with tenant+RBAC| GW
+  BRIDGE -->|or direct path| API
+  BRIDGE -->|MCP protocol| MCPIC
+  BRIDGE -->|MCP protocol optional| MCP3P
+  API --> PG
+```
+
+**Agent rollout:**
+
+```mermaid
+flowchart LR
+  UI2[Staff UI] --> BI[Built-in agents]
+  UI2 --> CA[Custom agents]
+  BI --> BR[MCP bridge]
+  CA --> BR
+  BR --> READ[Read tools first]
+  READ --> WRITE[Write tools later after validation]
+```
+
+---
+
+## How to use this in submission
+
+- Link this file from the main write-up.
+- Keep this as the primary visual reference; avoid duplicating many extra diagrams unless explicitly requested.
